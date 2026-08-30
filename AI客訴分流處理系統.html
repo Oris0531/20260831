@@ -251,6 +251,13 @@
   }
   table.data-table td{padding:9px 8px; border-bottom:1px solid #EAE3D3; color:var(--ink); vertical-align:top;} #ticketTable td:nth-child(3){max-width:320px;white-space:normal;line-height:1.45;}
   table.data-table tr:last-child td{border-bottom:none;}
+  .table-scroll{width:100%; overflow-x:auto;}
+  #ticketTable th:nth-child(2),#ticketTable td:nth-child(2){min-width:8em; width:8em;}
+  #ticketTable th:nth-child(4),#ticketTable td:nth-child(4){min-width:8em; width:8em;}
+  #ticketTable th:nth-child(4),#ticketTable td:nth-child(4) .pill{white-space:nowrap;}
+  #ticketTable th:nth-child(5),#ticketTable td:nth-child(5){min-width:12.5em; width:12.5em; white-space:nowrap;}
+  #ticketTable .ticket-number,#ticketTable .ticket-time{display:inline-block; line-height:1.55; white-space:nowrap;}
+  #ticketTable .category-lines{display:inline-block; line-height:1.55; white-space:nowrap;}
   #ticketTable .ticket-desc{
     min-width:280px;
     max-width:420px;
@@ -443,19 +450,21 @@
         <div id="catBars"></div>
       </div>
       <div class="card">
-        <div class="section-title">近19日客訴風險趨勢</div>
+        <div class="section-title">客訴案件趨勢</div>
         <div class="trend-wrap" id="trendWrap"></div>
-        <div class="trend-axis"><span>8/1</span><span>8/10</span><span>8/19</span></div>
+        <div class="trend-axis" id="trendAxis"><span>8/1</span><span>8/10</span><span>8/19</span></div>
       </div>
     </div>
 
     <div class="admin-grid">
       <div class="card">
         <div class="section-title">客訴單（排單處理）</div>
-        <table class="data-table" id="ticketTable">
-          <thead><tr><th>單號</th><th>類別</th><th style="min-width:280px;">客戶描述內容</th><th>狀態</th><th>建立時間</th></tr></thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-scroll">
+          <table class="data-table" id="ticketTable">
+            <thead><tr><th>單號</th><th>類別</th><th style="min-width:280px;">客戶描述內容</th><th>狀態</th><th>建立日期時間</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
         <div class="empty-note" id="ticketEmptyNote">目前尚無新開立的客訴單</div>
       </div>
       <div class="card">
@@ -539,15 +548,36 @@ let state = {
   tickets: [],       // {id, category, status, time}
   transfers: [],      // {id, category, faqQ, faqA, desc, riskFlags, time, picked}
   liveCategoryCounts: {}, // 疊加在 baseline 上的即時計數
-  liveTrend: {}, // date -> count (今天新增的風險案件，展示用疊加在最後一天)
+  liveTrend: {}, // YYYY-MM-DD -> count（依案件建立日期累計；結案不回扣）
   chats: {}, // transferId -> [{role,text,time}]
 };
 
 /* ========================= 共用工具 ========================= */
 function catName(id){ return CATEGORIES.find(c=>c.id===id).name; }
+function formatTicketId(id){
+  const match = id.match(/^(CT-\d{4}-)(\d+)$/);
+  return match ? `${match[1]}<br>${match[2]}` : id;
+}
+function formatCategoryLines(id){
+  const chars = Array.from(catName(id));
+  const lines = [];
+  for(let i=0; i<chars.length; i+=5) lines.push(chars.slice(i,i+5).join(''));
+  return lines.join('<br>');
+}
+function formatTicketTime(value){
+  const match = value.match(/^(\d{4}\/\d{2}\/\d{2})\s+(.+)$/);
+  return match ? `${match[1]}<br>${match[2]}` : value;
+}
 function nowStr(){
   const d = new Date();
   return d.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+function nowDateTimeStr(){
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}/${m}/${day} ${nowStr()}`;
 }
 function genTicketId(){
   state.ticketCounter += 1;
@@ -666,10 +696,23 @@ document.getElementById('btnSubmitDesc').addEventListener('click', ()=>{
     state.transferredCount += 1;
     bumpLiveCategory(catId);
     bumpLiveTrend();
+    const tid = genTicketId();
     const transferId = 'TR-' + Date.now().toString().slice(-6);
+    state.tickets.unshift({
+      id:tid,
+      category:catId,
+      name:customerName,
+      phone:customerPhone,
+      desc:desc,
+      status:'轉人工處理中',
+      time:nowDateTimeStr()
+    });
     state.transfers.unshift({
       id: transferId,
+      ticketId: tid,
       category: catId,
+      name: customerName,
+      phone: customerPhone,
       faqQ: f.q, faqA: f.a,
       desc, riskFlags:{keywords:matchedKeywords, exclaimCount},
       time: nowStr(), picked:false
@@ -687,7 +730,7 @@ document.getElementById('btnSubmitDesc').addEventListener('click', ()=>{
     bumpLiveCategory(catId);
     bumpLiveTrend();
     const tid = genTicketId();
-    state.tickets.unshift({id:tid, category:catId, name:customerName, phone:customerPhone, desc:desc, status:'處理中', time:nowStr()});
+    state.tickets.unshift({id:tid, category:catId, name:customerName, phone:customerPhone, desc:desc, status:'處理中', time:nowDateTimeStr()});
     rs.innerHTML = `
       <div class="result-banner ticketed">
         <div class="rb-top"><span class="rb-icon">🎟️</span><span class="rb-title">已為你開立客訴單</span></div>
@@ -700,6 +743,7 @@ document.getElementById('btnSubmitDesc').addEventListener('click', ()=>{
   document.getElementById('customerName').value='';
   document.getElementById('customerPhone').value='';
   rs.scrollIntoView({behavior:'smooth', block:'nearest'});
+  renderAdmin();
   updateTabCounts();
 });
 
@@ -707,8 +751,17 @@ function bumpLiveCategory(catId){
   state.liveCategoryCounts[catId] = (state.liveCategoryCounts[catId]||0) + 1;
 }
 function bumpLiveTrend(){
-  const key = 'today';
+  const key = localDateKey(new Date());
   state.liveTrend[key] = (state.liveTrend[key]||0) + 1;
+}
+function localDateKey(date){
+  const y = date.getFullYear();
+  const m = String(date.getMonth()+1).padStart(2,'0');
+  const d = String(date.getDate()).padStart(2,'0');
+  return `${y}-${m}-${d}`;
+}
+function localDateLabel(date){
+  return `${date.getMonth()+1}/${date.getDate()}`;
 }
 
 /* ========================= 客服模式渲染 ========================= */
@@ -796,17 +849,33 @@ function renderAdmin(){
     </div>`;
   }).join('');
 
-  // 趨勢圖：8/1 ~ 8/19，以簡化模擬資料 + 今日即時疊加在最後一天
-  const baseTrend = [3,5,4,6,7,5,8,6,9,7,10,8,6,9,11,8,7,10,9];
-  const todayExtra = state.liveTrend.today || 0;
+  // 趨勢圖：歷史100件依8/1~8/19建立日呈現；之後的新案件依實際建立日累加
+  const baseTrend = [2,4,3,4,5,4,6,4,7,5,7,6,4,7,8,6,5,7,6];
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const baseStart = new Date(today.getFullYear(), 7, 1);
+  const baseEnd = new Date(today.getFullYear(), 7, 19);
+  const chartEnd = today > baseEnd ? today : baseEnd;
+  const trendDates = [];
+  for(let date = new Date(baseStart); date <= chartEnd; date.setDate(date.getDate()+1)){
+    trendDates.push(new Date(date));
+  }
+  const trendValues = trendDates.map((date,i)=>{
+    const baseline = i < baseTrend.length ? baseTrend[i] : 0;
+    return baseline + (state.liveTrend[localDateKey(date)] || 0);
+  });
   const trendWrap = document.getElementById('trendWrap');
-  const maxTrend = Math.max(...baseTrend) + todayExtra;
-  trendWrap.innerHTML = baseTrend.map((v,i)=>{
-    const isLast = i===baseTrend.length-1;
-    const val = isLast ? v + todayExtra : v;
+  const maxTrend = Math.max(...trendValues, 1);
+  trendWrap.innerHTML = trendValues.map((val,i)=>{
+    const liveCount = state.liveTrend[localDateKey(trendDates[i])] || 0;
     const h = Math.max(3, Math.round((val/maxTrend)*100));
-    return `<div class="trend-bar ${isLast && todayExtra>0 ? 'hasrisk':''}" style="height:${h}%" title="${val} 件"></div>`;
+    return `<div class="trend-bar ${liveCount>0 ? 'hasrisk':''}" style="height:${h}%" title="${localDateLabel(trendDates[i])}｜${val} 件"></div>`;
   }).join('');
+  const middleIndex = Math.floor(trendDates.length/2);
+  document.getElementById('trendAxis').innerHTML = `
+    <span>${localDateLabel(trendDates[0])}</span>
+    <span>${localDateLabel(trendDates[middleIndex])}</span>
+    <span>${localDateLabel(trendDates[trendDates.length-1])}</span>`;
 
   // 客訴單清單
   const tbody = document.querySelector('#ticketTable tbody');
@@ -818,11 +887,14 @@ function renderAdmin(){
     emptyNote.style.display='none';
     tbody.innerHTML = state.tickets.map(t=>`
       <tr>
-        <td class="mono">${t.id}</td>
-        <td>${catName(t.category)}</td>
-        <td class="ticket-desc" title="${t.desc || ''}">${t.desc || '（未填寫描述）'}</td>
+        <td class="mono"><span class="ticket-number">${formatTicketId(t.id)}</span></td>
+        <td><span class="category-lines">${formatCategoryLines(t.category)}</span></td>
+        <td class="complaint-detail">
+          <div class="customer-contact">${escapeHtml(t.name || '未提供姓名')}/${escapeHtml(t.phone || '未提供電話')}</div>
+          <div class="customer-desc">${escapeHtml(t.desc || '（未填寫描述）')}</div>
+        </td>
         <td><span class="pill processing">${t.status}</span></td>
-        <td class="mono">${t.time}</td>
+        <td class="mono"><span class="ticket-time">${formatTicketTime(t.time)}</span></td>
       </tr>
     `).join('');
   }
